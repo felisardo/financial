@@ -6,7 +6,6 @@
     <title>Planilha Financeira</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Estilos personalizados para barra de rolagem e animações */
         body { font-family: 'Inter', sans-serif; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
@@ -20,7 +19,6 @@
 <body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
 
     <div id="app" class="flex-1 flex flex-col w-full">
-        <!-- O conteúdo será renderizado aqui via JavaScript -->
         <div class="min-h-screen flex items-center justify-center bg-gray-100">
             <div class="text-gray-500 font-semibold animate-pulse text-lg">
                 Carregando Planilha Financeira...
@@ -30,85 +28,48 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-       import { getAuth, GoogleAuthProvider, signInWithRedirect, signOut, onAuthStateChanged, getRedirectResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged, getRedirectResult, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, collection, query, onSnapshot, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
- 
+
         // ============================================================================
-        // CONFIGURAÇÕES PARA O GITHUB PAGES (PREENCHA AQUI!)
+        // CONFIGURAÇÕES
         // ============================================================================
-        const ALLOWED_EMAIL = 'flaviofelisardo@gmail.com'; // <-- MUDE PARA O SEU E-MAIL AQUI
-      
-        // Cole aqui o objeto de configuração que o Firebase fornece nas configurações do projeto:
+        const ALLOWED_EMAIL = 'flaviofelisardo@gmail.com'; 
+        
         const firebaseConfig = {
-  apiKey: "AIzaSyDNlqCTMsd6IrD9WKeUSvfdZBxzDxynT2A",
-  authDomain: "financial-e0216.firebaseapp.com",
-  projectId: "financial-e0216",
-  storageBucket: "financial-e0216.firebasestorage.app",
-  messagingSenderId: "858145435022",
-  appId: "1:858145435022:web:012b46dcfd57bb7aa3c8df",
-  measurementId: "G-MJCVPWSPZQ"
-};
+            apiKey: "AIzaSyDNlqCTMsd6IrD9WKeUSvfdZBxzDxynT2A",
+            authDomain: "financial-e0216.firebaseapp.com",
+            projectId: "financial-e0216",
+            storageBucket: "financial-e0216.firebasestorage.app",
+            messagingSenderId: "858145435022",
+            appId: "1:858145435022:web:012b46dcfd57bb7aa3c8df",
+            measurementId: "G-MJCVPWSPZQ"
+        };
         // ============================================================================
 
-        // Variáveis de ambiente (mantém compatibilidade local, mas usa a sua config no Github)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'minha-planilha-v1';
-      
         
         // Inicialização do Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
+        
+        // Força a persistência local da sessão para evitar re-autenticação desnecessária no Android
+        setPersistence(auth, browserLocalPersistence).catch((err) => {
+            console.error("Erro ao definir persistência:", err);
+        });
+
         const db = getFirestore(app);
         const googleProvider = new GoogleAuthProvider();
-        // Verifica se o navegador acabou de voltar do redirecionamento do Google
-getRedirectResult(auth).catch((error) => {
-    console.error("Erro no redirecionamento do login:", error);
-});
-        
-onAuthStateChanged(auth, async (user) => {
-    if (unsubscribeSnapshot) {
-        unsubscribeSnapshot(); 
-        unsubscribeSnapshot = null;
-    }
 
-    if (user && user.email === ALLOWED_EMAIL) {
-        state.user = user;
-        state.authError = null;
-        
-        const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
-        unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-            const data = [];
-            snapshot.forEach(d => data.push({ id: d.id, ...d.data() }));
-            
-            data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-            state.transactions = data;
-            state.loading = false;
-            renderApp();
-        }, (error) => {
-            console.error("Firestore error:", error);
-            state.loading = false;
-            renderApp();
-        });
-    } else {
-        if (user && user.email !== ALLOWED_EMAIL) {
-             await signOut(auth);
-             state.authError = "Email não autorizado.";
-        }
-        
-        state.user = null;
-        state.transactions = [];
-        state.loading = false;
-        renderLogin();
-    }
-});
         // Estado Global da Aplicação
         const state = {
             user: null,
             transactions: [],
             activeMonth: 0,
             loading: true,
-            authError: null, // Controla mensagens de erro no login
+            authError: null,
             openCards: { 1: true, 2: true, 3: false, 4: false },
-            deleteConfirmations: {} // Armazena timers de confirmação de exclusão
+            deleteConfirmations: {}
         };
 
         const MONTHS = [
@@ -116,12 +77,10 @@ onAuthStateChanged(auth, async (user) => {
             'Mar/27', 'Abr/27', 'Mai/27', 'Jun/27', 'Jul/27', 'Ago/27'
         ];
 
-        // Formatador de Moeda
         const formatCurrency = (val) => {
             return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
         };
 
-        // Calcula o balanço e projeção de todos os meses
         const calculateBalances = () => {
             const arr = [];
             let prev = 0;
@@ -137,7 +96,6 @@ onAuthStateChanged(auth, async (user) => {
                     } else if (t.type === 'expense' && t.startMonthIndex === i) {
                         exp += t.amount;
                     } else if (t.type.startsWith('card')) {
-                        // Projeta parcelas para os meses corretos
                         if (i >= t.startMonthIndex && i < t.startMonthIndex + t.installments) {
                             cds += t.amount;
                         }
@@ -151,7 +109,6 @@ onAuthStateChanged(auth, async (user) => {
             return arr;
         };
 
-        // Extrai as transações formatadas para o mês ativo
         const getItemsForMonth = (type) => {
             const items = [];
             state.transactions.forEach(t => {
@@ -335,7 +292,6 @@ onAuthStateChanged(auth, async (user) => {
                 </div>
 
                 <main class="flex-1 p-3 sm:p-5 max-w-7xl mx-auto w-full">
-                    <!-- Resumo do Mês -->
                     <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                         <div class="p-3 rounded shadow-sm bg-white border-l-4 border-gray-400 flex flex-col justify-center">
                             <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Saldo Anterior</p>
@@ -375,21 +331,19 @@ onAuthStateChanged(auth, async (user) => {
             `;
         };
 
+        // Eventos Globais de Clique
         document.body.addEventListener('click', async (e) => {
-            // Mudança de Aba
             if (e.target.closest('.tab-btn')) {
                 state.activeMonth = parseInt(e.target.closest('.tab-btn').dataset.index);
                 renderApp();
             }
 
-            // Expandir/Colapsar Cartões
             if (e.target.closest('.toggle-card')) {
                 const num = parseInt(e.target.closest('.toggle-card').dataset.num);
                 state.openCards[num] = !state.openCards[num];
                 renderApp();
             }
 
-            // Adicionar Transação
             if (e.target.closest('.add-btn')) {
                 if (!state.user) return;
                 const container = e.target.closest('[data-type]');
@@ -418,7 +372,6 @@ onAuthStateChanged(auth, async (user) => {
                     btn.disabled = true;
                     btn.innerText = '...';
                     await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, 'transactions'), data);
-                    // O onSnapshot lidará com a atualização e limpeza via renderApp
                 } catch (error) {
                     console.error("Erro ao salvar:", error);
                     e.target.disabled = false;
@@ -426,14 +379,12 @@ onAuthStateChanged(auth, async (user) => {
                 }
             }
 
-            // Excluir Transação (Dupla Confirmação)
             if (e.target.closest('.delete-btn')) {
                 if (!state.user) return;
                 const btn = e.target.closest('.delete-btn');
                 const id = btn.dataset.id;
 
                 if (state.deleteConfirmations[id]) {
-                    // Já estava em confirmação, então exclui
                     try {
                         clearTimeout(state.deleteConfirmations[id]);
                         delete state.deleteConfirmations[id];
@@ -444,7 +395,6 @@ onAuthStateChanged(auth, async (user) => {
                         console.error("Erro ao deletar:", error);
                     }
                 } else {
-                    // Inicia estado de confirmação
                     state.deleteConfirmations[id] = setTimeout(() => {
                         delete state.deleteConfirmations[id];
                         renderApp();
@@ -453,23 +403,28 @@ onAuthStateChanged(auth, async (user) => {
                 }
             }
 
-          // Evento de Login
-if (e.target.closest('#login-btn')) {
-    const btn = e.target.closest('#login-btn');
-    btn.disabled = true;
-    btn.innerHTML = 'Redirecionando...';
-    try {
-        await signInWithRedirect(auth, googleProvider);
-        // A página vai navegar para o Google aqui — o código abaixo só roda se der erro antes disso
-    } catch (error) {
-        console.error("Erro no login:", error);
-        btn.disabled = false;
-        btn.innerHTML = 'Entrar com o Google';
-        state.authError = "Não foi possível iniciar o login. Tente novamente.";
-        renderLogin();
-    }
-}
-            // Evento de Logout
+            // Evento de Login (Modificado para usar Pop-up se possível, ou Redirect otimizado)
+            if (e.target.closest('#login-btn')) {
+                const btn = e.target.closest('#login-btn');
+                btn.disabled = true;
+                btn.innerHTML = 'Entrando...';
+                try {
+                    // Tenta o Popup primeiro (muito mais rápido no Android moderno do que o redirect)
+                    await signInWithPopup(auth, googleProvider);
+                } catch (error) {
+                    console.warn("Popup bloqueado ou falhou, tentando redirect...", error);
+                    try {
+                        await signInWithRedirect(auth, googleProvider);
+                    } catch (redirectError) {
+                        console.error("Erro no login:", redirectError);
+                        btn.disabled = false;
+                        btn.innerHTML = 'Entrar com o Google';
+                        state.authError = "Não foi possível iniciar o login. Tente novamente.";
+                        renderLogin();
+                    }
+                }
+            }
+
             if (e.target.closest('#logout-btn')) {
                 await signOut(auth);
             }
@@ -477,15 +432,14 @@ if (e.target.closest('#login-btn')) {
 
         let unsubscribeSnapshot = null;
 
+        // Gerenciamento ÚNICO e Otimizado do Estado de Autenticação
         onAuthStateChanged(auth, async (user) => {
-            // Limpa o listener de dados se já existir para evitar vazamentos (memory leak)
             if (unsubscribeSnapshot) {
                 unsubscribeSnapshot(); 
                 unsubscribeSnapshot = null;
             }
 
             if (user && user.email === ALLOWED_EMAIL) {
-                // Login com sucesso e e-mail correto
                 state.user = user;
                 state.authError = null;
                 
@@ -504,13 +458,11 @@ if (e.target.closest('#login-btn')) {
                     renderApp();
                 });
             } else {
-                // Desloga imediatamente se houver usuário mas o e-mail não for o permitido
                 if (user && user.email !== ALLOWED_EMAIL) {
                      await signOut(auth);
                      state.authError = "Email não autorizado.";
                 }
                 
-                // Força o estado a deslogado e renderiza a tela de login
                 state.user = null;
                 state.transactions = [];
                 state.loading = false;
