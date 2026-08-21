@@ -432,44 +432,24 @@
                 }
             }
 
-            // Evento de Login
+          // Evento de Login
             if (e.target.closest('#login-btn')) {
+                const btn = e.target.closest('#login-btn');
+                btn.disabled = true;
+                btn.innerHTML = 'Redirecionando...';
+                
+                // O Redirect muda a página inteira, então não precisamos processar o "result" aqui.
+                // O "olheiro" (onAuthStateChanged) fará o trabalho de carregar a planilha quando a página voltar.
                 try {
-                    const btn = e.target.closest('#login-btn');
-                    btn.disabled = true;
-                    btn.innerHTML = 'Aguardando...';
-                    
-                    const result = await signInWithRedirect(auth, googleProvider);
-                    const user = result.user;
-                    
-                    if (user.email !== ALLOWED_EMAIL) {
-                        await signOut(auth);
-                        state.authError = "Acesso negado. Este email não está autorizado.";
-                        renderLogin();
-                    } else {
-                        state.authError = null;
-                        // O onAuthStateChanged assumirá a partir daqui
-                    }
+                    await signInWithRedirect(auth, googleProvider);
                 } catch (error) {
-                    console.error("Erro no login:", error);
-                    
-                    if (error.code === 'auth/unauthorized-domain') {
-                        const domain = window.location.hostname || "o domínio atual";
-                        state.authError = `
-                            <b>Bloqueio de Segurança do Firebase:</b><br>
-                            Este ambiente de preview não está autorizado a fazer login.<br><br>
-                            Vá no Console do Firebase > Autenticação > Configurações > Domínios Autorizados, clique em "Adicionar Domínio" e cole o texto abaixo:<br>
-                            <div class="mt-2 p-2 bg-red-100 text-red-900 rounded font-mono text-xs break-all cursor-text select-all border border-red-300">
-                                ${domain}
-                            </div>
-                        `;
-                    } else {
-                        state.authError = "Ocorreu um erro ao tentar fazer login com o Google. Se estiver bloqueando pop-ups, permita para este site.";
-                    }
+                    console.error("Erro ao iniciar redirecionamento:", error);
+                    btn.disabled = false;
+                    btn.innerHTML = 'Entrar com o Google';
+                    state.authError = "Erro ao conectar com o Google. Tente novamente.";
                     renderLogin();
                 }
             }
-
             // Evento de Logout
             if (e.target.closest('#logout-btn')) {
                 await signOut(auth);
