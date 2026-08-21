@@ -30,7 +30,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithRedirect, signOut, onAuthStateChanged, getRedirectResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, getRedirectResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, collection, query, onSnapshot, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
  
         // ============================================================================
@@ -457,13 +457,15 @@ onAuthStateChanged(auth, async (user) => {
 if (e.target.closest('#login-btn')) {
                 const btn = e.target.closest('#login-btn');
                 btn.disabled = true;
-                btn.innerHTML = 'Redirecionando...';
+                btn.innerHTML = 'Abrindo Google...';
                 try {
-                    await signInWithRedirect(auth, googleProvider);
+                    await signInWithPopup(auth, googleProvider);
                 } catch (error) {
-                    console.error("Erro ao chamar login:", error);
+                    console.error("Erro no login:", error);
                     btn.disabled = false;
                     btn.innerHTML = 'Entrar com o Google';
+                    state.authError = "Não foi possível abrir a janela de login. Verifique se há bloqueadores ativos.";
+                    renderLogin();
                 }
             }
             // Evento de Logout
