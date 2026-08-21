@@ -59,25 +59,41 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const googleProvider = new GoogleAuthProvider();
- onAuthStateChanged(auth, (user) => {
-  if (user) {
-    if (user.email === ALLOWED_EMAIL) {
-      // Se o email estiver correto, esconde o login e mostra a planilha
-      document.getElementById('loginScreen').style.display = 'none';
-      document.getElementById('appContent').style.display = 'block'; // ou 'flex', dependendo do seu layout
-      
-      // Aqui você pode chamar a função que carrega os dados do Firestore, se tiver uma
-      // carregarDados(); 
-    } else {
-      // Se for outro email, bloqueia e desloga
-      alert("Acesso negado: Este email não está autorizado.");
-      auth.signOut();
+onAuthStateChanged(auth, async (user) => {
+    if (unsubscribeSnapshot) {
+        unsubscribeSnapshot(); 
+        unsubscribeSnapshot = null;
     }
-  } else {
-    // Se não tiver ninguém logado, garante que a tela de login apareça
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('appContent').style.display = 'none';
-  }
+
+    if (user && user.email === ALLOWED_EMAIL) {
+        state.user = user;
+        state.authError = null;
+        
+        const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
+        unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+            const data = [];
+            snapshot.forEach(d => data.push({ id: d.id, ...d.data() }));
+            
+            data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            state.transactions = data;
+            state.loading = false;
+            renderApp();
+        }, (error) => {
+            console.error("Firestore error:", error);
+            state.loading = false;
+            renderApp();
+        });
+    } else {
+        if (user && user.email !== ALLOWED_EMAIL) {
+             await signOut(auth);
+             state.authError = "Email não autorizado.";
+        }
+        
+        state.user = null;
+        state.transactions = [];
+        state.loading = false;
+        renderLogin();
+    }
 });
         // Estado Global da Aplicação
         const state = {
