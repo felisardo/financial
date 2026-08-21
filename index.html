@@ -411,20 +411,20 @@
                 renderApp();
                 // Salva a nova quantidade de meses no banco
                 await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'general'), state.settings, { merge: true });
+                return;
             }
 
             // Editar Nome do Cartão
             if (e.target.closest('.edit-card-btn')) {
-                e.stopPropagation(); // Impede de abrir/fechar o cartão
                 const num = parseInt(e.target.closest('.edit-card-btn').dataset.num);
                 state.editingCard = num;
                 renderApp();
                 setTimeout(() => document.getElementById(`edit-card-input-${num}`).focus(), 50);
+                return; // Impede que a ação de expandir o cartão ocorra
             }
 
             // Salvar Nome do Cartão
             if (e.target.closest('.save-card-btn')) {
-                e.stopPropagation();
                 if (!state.user) return;
                 const num = parseInt(e.target.closest('.save-card-btn').dataset.num);
                 const input = document.getElementById(`edit-card-input-${num}`);
@@ -437,6 +437,12 @@
                 renderApp();
                 // Salva o novo nome no banco
                 await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'general'), state.settings, { merge: true });
+                return; // Impede que a ação de expandir o cartão ocorra
+            }
+
+            // Impedir colapso do cartão ao clicar no campo de texto
+            if (e.target.closest('input[id^="edit-card-input"]')) {
+                return;
             }
 
             // Mudança de Aba
