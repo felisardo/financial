@@ -52,7 +52,7 @@
 
         // Variáveis de ambiente (mantém compatibilidade local, mas usa a sua config no Github)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'minha-planilha-v1';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : myFirebaseConfig;
+      
         
         // Inicialização do Firebase
         const app = initializeApp(firebaseConfig);
