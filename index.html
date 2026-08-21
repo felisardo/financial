@@ -420,7 +420,7 @@
                     btn.disabled = true;
                     btn.innerHTML = 'Aguardando...';
                     
-                    const result = await signInWithPopup(auth, googleProvider);
+                    const result = await signInWithRedirect(auth, googleProvider);
                     const user = result.user;
                     
                     if (user.email !== ALLOWED_EMAIL) {
