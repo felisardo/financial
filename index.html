@@ -31,7 +31,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, collection, query, onSnapshot, addDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, collection, query, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
  
         // ============================================================================
         // CONFIGURAÇÕES PARA O GITHUB PAGES
@@ -65,13 +65,27 @@
             loading: true,
             authError: null,
             openCards: { 1: true, 2: true, 3: false, 4: false },
-            deleteConfirmations: {} 
+            deleteConfirmations: {},
+            settings: {
+                cardNames: { 1: 'Cartão 1', 2: 'Cartão 2', 3: 'Cartão 3', 4: 'Cartão 4' },
+                totalMonths: 12
+            },
+            editingCard: null
         };
 
-        const MONTHS = [
-            'Set/26', 'Out/26', 'Nov/26', 'Dez/26', 'Jan/27', 'Fev/27',
-            'Mar/27', 'Abr/27', 'Mai/27', 'Jun/27', 'Jul/27', 'Ago/27'
-        ];
+        // Gerador dinâmico de meses para permitir adição infinita
+        const getMonths = () => {
+            const arr = [];
+            let m = 8; // Começa em Setembro (mês 8 no array 0-11)
+            let y = 26; // Começa em 2026
+            const names = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            for(let i = 0; i < state.settings.totalMonths; i++) {
+                arr.push(`${names[m]}/${y}`);
+                m++;
+                if (m > 11) { m = 0; y++; }
+            }
+            return arr;
+        };
 
         // Formatador de Moeda
         const formatCurrency = (val) => {
@@ -83,7 +97,7 @@
             const arr = [];
             let prev = 0;
             
-            for (let i = 0; i < 12; i++) {
+            for (let i = 0; i < state.settings.totalMonths; i++) {
                 let inc = 0;
                 let exp = 0;
                 let cds = 0;
@@ -219,11 +233,26 @@
             const type = `card${num}`;
             const total = items.reduce((acc, item) => acc + item.amount, 0);
             const isOpen = state.openCards[num];
+            const cardName = state.settings.cardNames[num] || `Cartão de Crédito ${num}`;
+            const isEditing = state.editingCard === num;
 
             return `
                 <div class="border rounded mb-4 overflow-hidden shadow-sm bg-white">
                     <div class="toggle-card flex justify-between items-center p-3 bg-slate-100 cursor-pointer hover:bg-slate-200 transition-colors" data-num="${num}">
-                        <h3 class="font-semibold text-slate-800">💳 Cartão de Crédito ${num}</h3>
+                        
+                        <h3 class="font-semibold text-slate-800 flex items-center gap-2">
+                            💳 
+                            ${isEditing ? 
+                                `<input type="text" id="edit-card-input-${num}" value="${cardName}" class="p-1 border rounded text-sm text-black w-32 outline-none" onclick="event.stopPropagation()">
+                                 <button class="save-card-btn text-green-700 bg-green-200 px-2 py-1 rounded text-xs hover:bg-green-300 font-bold" data-num="${num}" onclick="event.stopPropagation()">Salvar</button>`
+                                : 
+                                `<span>${cardName}</span>
+                                 <button class="edit-card-btn text-gray-400 hover:text-blue-500 transition-colors p-1" data-num="${num}" title="Editar Nome" onclick="event.stopPropagation()">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                 </button>`
+                            }
+                        </h3>
+
                         <div class="flex gap-4 items-center">
                             <span class="font-bold text-orange-600">${formatCurrency(total)}</span>
                             <span class="text-gray-500 text-xs w-4">${isOpen ? '▲' : '▼'}</span>
@@ -298,6 +327,7 @@
                 return;
             }
 
+            const MONTHS = getMonths();
             const balances = calculateBalances();
             const activeData = balances[state.activeMonth] || { previousBalance: 0, incomes: 0, expenses: 0, cards: 0, currentBalance: 0 };
 
@@ -311,7 +341,7 @@
                     </div>
                     <div class="flex items-center gap-3">
                         <div class="hidden sm:block text-xs font-medium bg-white/20 px-3 py-1 rounded-full">
-                            Set/26 a Ago/27
+                            ${MONTHS[0]} a ${MONTHS[MONTHS.length - 1]}
                         </div>
                         <button id="logout-btn" class="text-sm font-medium bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded transition-colors" title="Sair da conta">
                             Sair
@@ -327,6 +357,9 @@
                             ${m}
                         </button>
                     `).join('')}
+                    <button class="add-month-btn px-4 py-3 min-w-[100px] font-bold text-gray-400 hover:text-[#0F9D58] hover:bg-green-50 transition-colors border-b-2 border-transparent" title="Adicionar mais um mês no calendário">
+                        + Mês
+                    </button>
                 </div>
 
                 <main class="flex-1 p-3 sm:p-5 max-w-7xl mx-auto w-full">
@@ -371,6 +404,41 @@
         };
 
         document.body.addEventListener('click', async (e) => {
+            // Adicionar Novo Mês
+            if (e.target.closest('.add-month-btn')) {
+                if (!state.user) return;
+                state.settings.totalMonths += 1;
+                renderApp();
+                // Salva a nova quantidade de meses no banco
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'general'), state.settings, { merge: true });
+            }
+
+            // Editar Nome do Cartão
+            if (e.target.closest('.edit-card-btn')) {
+                e.stopPropagation(); // Impede de abrir/fechar o cartão
+                const num = parseInt(e.target.closest('.edit-card-btn').dataset.num);
+                state.editingCard = num;
+                renderApp();
+                setTimeout(() => document.getElementById(`edit-card-input-${num}`).focus(), 50);
+            }
+
+            // Salvar Nome do Cartão
+            if (e.target.closest('.save-card-btn')) {
+                e.stopPropagation();
+                if (!state.user) return;
+                const num = parseInt(e.target.closest('.save-card-btn').dataset.num);
+                const input = document.getElementById(`edit-card-input-${num}`);
+                const newName = input.value.trim();
+                
+                if (newName) {
+                    state.settings.cardNames[num] = newName;
+                }
+                state.editingCard = null;
+                renderApp();
+                // Salva o novo nome no banco
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'general'), state.settings, { merge: true });
+            }
+
             // Mudança de Aba
             if (e.target.closest('.tab-btn')) {
                 state.activeMonth = parseInt(e.target.closest('.tab-btn').dataset.index);
@@ -499,16 +567,36 @@
         // OLHEIRO DE AUTENTICAÇÃO E DADOS
         // ============================================================================
         let unsubscribeSnapshot = null;
+        let unsubscribeSettings = null;
 
         onAuthStateChanged(auth, async (user) => {
-            if (unsubscribeSnapshot) {
-                unsubscribeSnapshot(); 
-                unsubscribeSnapshot = null;
-            }
+            if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+            if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
 
             if (user && user.email === ALLOWED_EMAIL) {
                 state.user = user;
                 state.authError = null;
+                
+                let txLoaded = false;
+                let stLoaded = false;
+
+                const checkRender = () => {
+                    if (txLoaded && stLoaded) {
+                        state.loading = false;
+                        renderApp();
+                    }
+                };
+
+                // Observador silencioso das configurações salvas (Nomes dos cartões, Qtd de Meses)
+                unsubscribeSettings = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.cardNames) state.settings.cardNames = data.cardNames;
+                        if (data.totalMonths) state.settings.totalMonths = data.totalMonths;
+                    }
+                    stLoaded = true;
+                    checkRender();
+                });
                 
                 const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
                 unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
@@ -517,12 +605,12 @@
                     
                     data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
                     state.transactions = data;
-                    state.loading = false;
-                    renderApp();
+                    txLoaded = true;
+                    checkRender();
                 }, (error) => {
                     console.error("Firestore error:", error);
-                    state.loading = false;
-                    renderApp();
+                    txLoaded = true;
+                    checkRender();
                 });
             } else {
                 if (user && user.email !== ALLOWED_EMAIL) {
