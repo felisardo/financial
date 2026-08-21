@@ -37,6 +37,26 @@
         // CONFIGURAÇÕES PARA O GITHUB PAGES (PREENCHA AQUI!)
         // ============================================================================
         const ALLOWED_EMAIL = 'flaviofelisardo@gmail.com'; // <-- MUDE PARA O SEU E-MAIL AQUI
+        onAuthStateChanged(auth, (user) => {
+  if (user) {
+    if (user.email === ALLOWED_EMAIL) {
+      // Se o email estiver correto, esconde o login e mostra a planilha
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('appContent').style.display = 'block'; // ou 'flex', dependendo do seu layout
+      
+      // Aqui você pode chamar a função que carrega os dados do Firestore, se tiver uma
+      // carregarDados(); 
+    } else {
+      // Se for outro email, bloqueia e desloga
+      alert("Acesso negado: Este email não está autorizado.");
+      auth.signOut();
+    }
+  } else {
+    // Se não tiver ninguém logado, garante que a tela de login apareça
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('appContent').style.display = 'none';
+  }
+});
 
         // Cole aqui o objeto de configuração que o Firebase fornece nas configurações do projeto:
         const firebaseConfig = {
