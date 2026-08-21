@@ -454,21 +454,16 @@ onAuthStateChanged(auth, async (user) => {
             }
 
           // Evento de Login
-            if (e.target.closest('#login-btn')) {
+if (e.target.closest('#login-btn')) {
                 const btn = e.target.closest('#login-btn');
                 btn.disabled = true;
                 btn.innerHTML = 'Redirecionando...';
-                
-                // O Redirect muda a página inteira, então não precisamos processar o "result" aqui.
-                // O "olheiro" (onAuthStateChanged) fará o trabalho de carregar a planilha quando a página voltar.
                 try {
                     await signInWithRedirect(auth, googleProvider);
                 } catch (error) {
-                    console.error("Erro ao iniciar redirecionamento:", error);
+                    console.error("Erro ao chamar login:", error);
                     btn.disabled = false;
                     btn.innerHTML = 'Entrar com o Google';
-                    state.authError = "Erro ao conectar com o Google. Tente novamente.";
-                    renderLogin();
                 }
             }
             // Evento de Logout
