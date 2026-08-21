@@ -30,7 +30,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithRedirect, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithRedirect, signOut, onAuthStateChanged, getRedirectResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, collection, query, onSnapshot, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
  
         // ============================================================================
@@ -59,6 +59,11 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const googleProvider = new GoogleAuthProvider();
+        // Verifica se o navegador acabou de voltar do redirecionamento do Google
+getRedirectResult(auth).catch((error) => {
+    console.error("Erro no redirecionamento do login:", error);
+});
+        
 onAuthStateChanged(auth, async (user) => {
     if (unsubscribeSnapshot) {
         unsubscribeSnapshot(); 
