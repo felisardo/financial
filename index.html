@@ -243,11 +243,11 @@
                         <h3 class="font-semibold text-slate-800 flex items-center gap-2">
                             💳 
                             ${isEditing ? 
-                                `<input type="text" id="edit-card-input-${num}" value="${cardName}" class="p-1 border rounded text-sm text-black w-32 outline-none" onclick="event.stopPropagation()">
-                                 <button class="save-card-btn text-green-700 bg-green-200 px-2 py-1 rounded text-xs hover:bg-green-300 font-bold" data-num="${num}" onclick="event.stopPropagation()">Salvar</button>`
+                                `<input type="text" id="edit-card-input-${num}" value="${cardName}" class="p-1 border rounded text-sm text-black w-32 outline-none">
+                                 <button class="save-card-btn text-green-700 bg-green-200 px-2 py-1 rounded text-xs hover:bg-green-300 font-bold" data-num="${num}">Salvar</button>`
                                 : 
                                 `<span>${cardName}</span>
-                                 <button class="edit-card-btn text-gray-400 hover:text-blue-500 transition-colors p-1" data-num="${num}" title="Editar Nome" onclick="event.stopPropagation()">
+                                 <button class="edit-card-btn text-gray-400 hover:text-blue-500 transition-colors p-1" data-num="${num}" title="Editar Nome">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                                  </button>`
                             }
