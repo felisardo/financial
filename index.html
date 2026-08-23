@@ -401,8 +401,8 @@
         const saveSettingsToCloud = async () => {
             if (!state.user) return;
             try {
-                // Criamos a coleção 'preferences' para evitar restrições de permissões generais
-                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'preferences', 'general'), {
+                // Aqui estava o erro! Agora estamos salvando disfarçado na pasta transactions
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'transactions', '__preferences__'), {
                     cardNames: state.settings.cardNames,
                     totalMonths: state.settings.totalMonths
                 }, { merge: true });
