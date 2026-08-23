@@ -1,8 +1,162 @@
-<!-- ... existing code ... -->
-            `;
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planilha Financeira</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.2s ease-in-out; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
+
+    <div id="app" class="flex-1 flex flex-col w-full">
+        <!-- Tela de Carregamento Inicial -->
+        <div class="min-h-screen flex items-center justify-center bg-gray-100">
+            <div class="text-gray-500 font-semibold animate-pulse text-lg">
+                Carregando Planilha Financeira...
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, collection, query, onSnapshot, addDoc, setDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+ 
+        // ============================================================================
+        // CONFIGURAÇÕES DO PROJETO
+        // ============================================================================
+        const ALLOWED_EMAIL = 'flaviofelisardo@gmail.com'; 
+       
+        const firebaseConfig = {
+            apiKey: "AIzaSyDNlqCTMsd6IrD9WKeUSvfdZBxzDxynT2A",
+            authDomain: "financial-e0216.firebaseapp.com",
+            projectId: "financial-e0216",
+            storageBucket: "financial-e0216.firebasestorage.app",
+            messagingSenderId: "858145435022",
+            appId: "1:858145435022:web:012b46dcfd57bb7aa3c8df",
+            measurementId: "G-MJCVPWSPZQ"
+        };
+        // ============================================================================
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'minha-planilha-v1';
+        
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const googleProvider = new GoogleAuthProvider();
+
+        // Estado Global da Aplicação
+        const state = {
+            user: null,
+            transactions: [],
+            settings: {
+                cardNames: { 1: "Cartão de Crédito 1", 2: "Cartão de Crédito 2", 3: "Cartão de Crédito 3", 4: "Cartão de Crédito 4" },
+                totalMonths: 12 // Começa com 12 meses por padrão
+            },
+            activeMonth: 0,
+            loading: true,
+            authError: null,
+            openCards: { 1: true, 2: true, 3: false, 4: false },
+            deleteConfirmations: {},
+            editingCard: null, // Controla qual cartão está sendo editado no momento
+            newCardName: ""
         };
 
-        // Função de salvamento dedicada ao Firestore
+        // Função para gerar a lista de meses com base na configuração do usuário
+        const getMonthsList = () => {
+            const list = [];
+            const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            let currentMonth = 8; // Começa em Setembro (Índice 8)
+            let currentYear = 26; // Começa em 2026
+            
+            for(let i = 0; i < state.settings.totalMonths; i++) {
+                list.push(`${monthNames[currentMonth]}/${currentYear}`);
+                currentMonth++;
+                if (currentMonth > 11) {
+                    currentMonth = 0;
+                    currentYear++;
+                }
+            }
+            return list;
+        };
+
+        const formatCurrency = (val) => {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+        };
+
+        const calculateBalances = () => {
+            const arr = [];
+            let prev = 0;
+            
+            for (let i = 0; i < state.settings.totalMonths; i++) {
+                let inc = 0, exp = 0, cds = 0;
+
+                state.transactions.forEach(t => {
+                    const start = t.startMonthIndex;
+                    const end = t.endMonthIndex ?? t.startMonthIndex;
+
+                    if (t.type === 'income' && i >= start && i <= end) {
+                        inc += t.amount;
+                    } else if (t.type === 'expense' && i >= start && i <= end) {
+                        exp += t.amount;
+                    } else if (t.type.startsWith('card')) {
+                        if (i >= start && i < start + t.installments) {
+                            cds += t.amount;
+                        }
+                    }
+                });
+
+                const curr = prev + inc - exp - cds;
+                arr.push({ incomes: inc, expenses: exp, cards: cds, previousBalance: prev, currentBalance: curr });
+                prev = curr;
+            }
+            return arr;
+        };
+
+        const getItemsForMonth = (type) => {
+            const items = [];
+            state.transactions.forEach(t => {
+                const start = t.startMonthIndex;
+                const end = t.endMonthIndex ?? t.startMonthIndex;
+
+                if (t.type === type) {
+                    if (type.startsWith('card')) {
+                        if (state.activeMonth >= start && state.activeMonth < start + t.installments) {
+                            items.push({
+                                id: t.id,
+                                description: t.description,
+                                amount: t.amount,
+                                currentInst: state.activeMonth - start + 1,
+                                totalInst: t.installments
+                            });
+                        }
+                    } else {
+                        if (state.activeMonth >= start && state.activeMonth <= end) {
+                            items.push({ 
+                                id: t.id, 
+                                description: t.description, 
+                                amount: t.amount,
+                                startMonthIndex: start,
+                                endMonthIndex: end
+                            });
+                        }
+                    }
+                }
+            });
+            return items;
+        };
+
+        // Salva as configurações exclusivamente na nuvem (Firestore)
         const saveSettingsToCloud = async () => {
             if (!state.user) return;
             try {
@@ -11,24 +165,406 @@
                     totalMonths: state.settings.totalMonths,
                     updatedAt: new Date().toISOString()
                 };
-
-                // Salva na coleção "settings", documento "preferences" dentro da pasta do usuário
                 const settingsRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'preferences');
                 await setDoc(settingsRef, prefsToSave, { merge: true });
-                console.log("Configurações salvas diretamente no banco de dados (Firestore)!");
+                console.log("Configurações atualizadas na nuvem!");
             } catch (err) {
-                console.error("Erro ao salvar no Firestore:", err);
+                console.error("Erro ao salvar configurações:", err);
             }
         };
 
+        const renderAddRow = (type) => `
+            <div class="flex flex-wrap gap-2 items-center p-2 bg-gray-50 border-t" data-type="${type}">
+                <input type="text" placeholder="Descrição" class="desc-input flex-1 min-w-[120px] p-1.5 border rounded text-sm outline-none focus:border-[#0F9D58]" />
+                <input type="number" step="0.01" placeholder="Valor" class="amount-input w-24 p-1.5 border rounded text-sm outline-none focus:border-[#0F9D58]" />
+                
+                ${type.startsWith('card') ? 
+                    `<input type="number" min="1" placeholder="Parcelas" value="1" class="inst-input w-20 p-1.5 border rounded text-sm outline-none focus:border-[#0F9D58]" />` : 
+                    `<label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer font-medium hover:text-gray-800 transition-colors" title="Repetir nos meses seguintes">
+                        <input type="checkbox" class="recur-checkbox rounded w-4 h-4 text-[#0F9D58] focus:ring-[#0F9D58]"> Fixo
+                    </label>`
+                }
+                
+                <button class="add-btn bg-[#0F9D58] text-white px-3 py-1.5 rounded hover:bg-[#0b8043] text-sm font-medium transition-colors">Adicionar</button>
+            </div>
+        `;
+
+        const renderSection = (type, title, colorClass, items) => {
+            const total = items.reduce((a, b) => a + b.amount, 0);
+            return `
+                <div class="border rounded overflow-hidden shadow-sm bg-white mb-6">
+                    <div class="p-3 font-semibold flex justify-between items-center ${colorClass}">
+                        <span>${title}</span>
+                        <span>${formatCurrency(total)}</span>
+                    </div>
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-slate-600 border-b">
+                            <tr>
+                                <th class="p-2 font-medium">Descrição</th>
+                                <th class="p-2 font-medium">Valor</th>
+                                <th class="p-2 w-28 font-medium text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.length === 0 ? `<tr><td colspan="3" class="p-4 text-center text-gray-400 italic">Nenhum registro lançado.</td></tr>` : items.map(item => {
+                                const isRecurringOnwards = item.endMonthIndex > state.activeMonth;
+                                const isFixedItem = item.endMonthIndex > item.startMonthIndex;
+                                return `
+                                <tr class="border-b last:border-0 hover:bg-gray-50 transition-colors">
+                                    <td class="p-2">
+                                        <div class="flex items-center gap-2">
+                                            ${item.description}
+                                            ${isFixedItem ? `<span class="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1 font-medium" title="Item Fixo"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg> Fixo</span>` : ''}
+                                        </div>
+                                    </td>
+                                    <td class="p-2">${formatCurrency(item.amount)}</td>
+                                    <td class="p-2 text-center flex justify-center items-center gap-1.5">
+                                        <button class="toggle-recur-btn text-xs p-1.5 rounded transition-colors ${isRecurringOnwards ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" data-id="${item.id}" data-recurring="${isRecurringOnwards}" title="${isRecurringOnwards ? 'Parar repetição a partir do próximo mês' : 'Tornar recorrente nos próximos meses'}">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                        </button>
+                                        <button class="delete-btn text-xs px-2 py-1.5 rounded transition-colors ${state.deleteConfirmations[item.id] ? 'bg-red-600 text-white font-bold' : 'text-red-500 hover:bg-red-100'}" data-id="${item.id}" title="Excluir lançamento">
+                                            ${state.deleteConfirmations[item.id] ? 'Excluir?' : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>'}
+                                        </button>
+                                    </td>
+                                </tr>
+                            `}).join('')}
+                        </tbody>
+                    </table>
+                    ${renderAddRow(type)}
+                </div>
+            `;
+        };
+
+        const renderCardSection = (num, items) => {
+            const type = `card${num}`;
+            const total = items.reduce((acc, item) => acc + item.amount, 0);
+            const isOpen = state.openCards[num];
+            const cardName = state.settings.cardNames[num] || `Cartão de Crédito ${num}`;
+            const isEditing = state.editingCard === num;
+
+            return `
+                <div class="border rounded mb-4 overflow-hidden shadow-sm bg-white">
+                    <div class="toggle-card flex justify-between items-center p-3 bg-slate-100 cursor-pointer hover:bg-slate-200 transition-colors" data-num="${num}">
+                        <div class="flex items-center gap-2 w-full">
+                            ${isEditing ? `
+                                💳 <input type="text" class="card-name-input px-2 py-1 text-sm border border-gray-300 rounded outline-none focus:border-[#0F9D58] font-semibold text-slate-800 w-48" value="${state.newCardName}">
+                                <button class="save-card-btn bg-[#0F9D58] text-white text-xs px-2 py-1 rounded hover:bg-[#0b8043]" data-num="${num}">Salvar</button>
+                                <button class="cancel-edit-btn text-gray-500 hover:text-red-500 text-xs px-2 py-1">Cancelar</button>
+                            ` : `
+                                <h3 class="font-semibold text-slate-800 flex items-center gap-2">💳 ${cardName} 
+                                    <button class="edit-card-btn text-gray-400 hover:text-blue-600 transition-colors" data-num="${num}" title="Editar nome do cartão">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                    </button>
+                                </h3>
+                            `}
+                        </div>
+                        <div class="flex gap-4 items-center pl-2">
+                            <span class="font-bold text-orange-600 whitespace-nowrap">${formatCurrency(total)}</span>
+                            <span class="text-gray-500 text-xs w-4">${isOpen ? '▲' : '▼'}</span>
+                        </div>
+                    </div>
+                    
+                    ${isOpen ? `
+                    <div class="animate-fade-in">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-600 border-b">
+                                <tr>
+                                    <th class="p-2 font-medium">Descrição</th>
+                                    <th class="p-2 font-medium whitespace-nowrap">Parcela</th>
+                                    <th class="p-2 font-medium">Valor</th>
+                                    <th class="p-2 w-16 font-medium text-center">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.length === 0 ? `<tr><td colspan="4" class="p-4 text-center text-gray-400 italic">Fatura zerada.</td></tr>` : items.map(item => `
+                                    <tr class="border-b last:border-0 hover:bg-orange-50 transition-colors">
+                                        <td class="p-2">${item.description}</td>
+                                        <td class="p-2 text-gray-500">${item.currentInst} / ${item.totalInst}</td>
+                                        <td class="p-2">${formatCurrency(item.amount)}</td>
+                                        <td class="p-2 text-center">
+                                            <button class="delete-btn text-xs px-2 py-1.5 rounded transition-colors ${state.deleteConfirmations[item.id] ? 'bg-red-600 text-white font-bold' : 'text-red-500 hover:bg-red-100'}" data-id="${item.id}" title="Excluir">
+                                                ${state.deleteConfirmations[item.id] ? 'Excluir?' : '<svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>'}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        ${renderAddRow(type)}
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        };
+
+        const renderLogin = () => {
+            const appDiv = document.getElementById('app');
+            appDiv.innerHTML = `
+                <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4 w-full">
+                    <div class="bg-white p-8 rounded-lg shadow-lg max-w-md w-full text-center border-t-4 border-[#0F9D58]">
+                        <svg class="w-16 h-16 text-[#0F9D58] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                        <h1 class="text-2xl font-bold text-gray-800 mb-2">Planilha Financeira</h1>
+                        <p class="text-gray-600 mb-6 text-sm">Acesso restrito. Faça login com o email autorizado para acessar os dados financeiros.</p>
+                        
+                        ${state.authError ? `<div class="bg-red-50 text-red-600 p-3 rounded mb-5 text-sm border border-red-200">${state.authError}</div>` : ''}
+
+                        <button id="login-btn" class="w-full bg-blue-600 text-white font-medium py-3 px-4 rounded hover:bg-blue-700 transition-colors flex items-center justify-center gap-3">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/>
+                            </svg>
+                            Entrar com o Google
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderApp = () => {
+            const appDiv = document.getElementById('app');
+            
+            if (state.loading) {
+                appDiv.innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div class="text-gray-500 font-semibold animate-pulse text-lg">Carregando Planilha Financeira...</div>
+                    </div>`;
+                return;
+            }
+
+            const dynamicMonths = getMonthsList();
+            const balances = calculateBalances();
+            const activeData = balances[state.activeMonth] || { previousBalance: 0, incomes: 0, expenses: 0, cards: 0, currentBalance: 0 };
+
+            appDiv.innerHTML = `
+                <header class="bg-[#0F9D58] text-white p-3 flex items-center justify-between shadow-md z-20 sticky top-0">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <span class="text-lg sm:text-xl font-bold">Controle Financeiro</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button id="logout-btn" class="text-sm font-medium bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded transition-colors" title="Sair da conta">
+                            Sair
+                        </button>
+                    </div>
+                </header>
+
+                <div class="flex overflow-x-auto bg-white shadow-sm z-10 sticky top-[52px] sm:top-[60px] scrollbar-hide items-center">
+                    ${dynamicMonths.map((m, i) => `
+                        <button class="tab-btn px-5 py-3 min-w-[100px] sm:min-w-[120px] font-medium text-sm transition-colors border-b-2 flex-1 whitespace-nowrap 
+                            ${state.activeMonth === i ? 'border-[#0F9D58] text-[#0F9D58] bg-green-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}"
+                            data-index="${i}">
+                            ${m}
+                        </button>
+                    `).join('')}
+                    
+                    <button class="add-month-btn px-4 py-2 mx-2 border border-[#0F9D58] text-[#0F9D58] font-bold text-sm rounded hover:bg-[#0F9D58] hover:text-white transition-colors whitespace-nowrap shadow-sm" title="Acrescentar mais 1 mês no futuro">
+                        + Mês
+                    </button>
+                </div>
+
+                <main class="flex-1 p-3 sm:p-5 max-w-7xl mx-auto w-full">
+                    <!-- Resumo do Mês -->
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                        <div class="p-3 rounded shadow-sm bg-white border-l-4 border-gray-400 flex flex-col justify-center">
+                            <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Saldo Anterior</p>
+                            <p class="text-base sm:text-lg font-bold truncate">${formatCurrency(activeData.previousBalance)}</p>
+                        </div>
+                        <div class="p-3 rounded shadow-sm bg-white border-l-4 border-green-500 flex flex-col justify-center">
+                            <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Receitas</p>
+                            <p class="text-base sm:text-lg font-bold text-green-600 truncate">+${formatCurrency(activeData.incomes)}</p>
+                        </div>
+                        <div class="p-3 rounded shadow-sm bg-white border-l-4 border-red-400 flex flex-col justify-center">
+                            <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Despesas</p>
+                            <p class="text-base sm:text-lg font-bold text-red-500 truncate">-${formatCurrency(activeData.expenses)}</p>
+                        </div>
+                        <div class="p-3 rounded shadow-sm bg-white border-l-4 border-orange-400 flex flex-col justify-center">
+                            <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Cartões</p>
+                            <p class="text-base sm:text-lg font-bold text-orange-600 truncate">-${formatCurrency(activeData.cards)}</p>
+                        </div>
+                        <div class="p-3 rounded shadow-sm bg-white border-l-4 flex flex-col justify-center ${activeData.currentBalance >= 0 ? 'border-blue-500' : 'border-red-600'}">
+                            <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Saldo Atual</p>
+                            <p class="text-base sm:text-xl font-bold truncate ${activeData.currentBalance >= 0 ? 'text-blue-600' : 'text-red-600'}">
+                                ${formatCurrency(activeData.currentBalance)}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        <div class="lg:col-span-5 space-y-6">
+                            ${renderSection('income', 'Receitas', 'bg-green-100 text-green-800 border-green-200', getItemsForMonth('income'))}
+                            ${renderSection('expense', 'Despesas Fixas / Variáveis', 'bg-red-100 text-red-800 border-red-200', getItemsForMonth('expense'))}
+                        </div>
+                        <div class="lg:col-span-7 bg-white/50 rounded p-1">
+                            <h2 class="text-lg font-bold text-gray-800 mb-4 ml-1 flex items-center gap-2">💳 Faturas Projetadas</h2>
+                            ${[1, 2, 3, 4].map(num => renderCardSection(num, getItemsForMonth(`card${num}`))).join('')}
+                        </div>
+                    </div>
+                </main>
+            `;
+        };
+
         document.body.addEventListener('click', async (e) => {
-<!-- ... existing code ... -->
-```
+            
+            // Edição do Nome do Cartão
+            if (e.target.closest('.edit-card-btn')) {
+                const num = parseInt(e.target.closest('.edit-card-btn').dataset.num);
+                state.editingCard = num;
+                state.newCardName = state.settings.cardNames[num] || `Cartão de Crédito ${num}`;
+                renderApp();
+                return; // Bloqueia a propagação para evitar fechar/abrir o cartão
+            }
 
-#### 2. Substitua os Olheiros no fim do arquivo:
+            if (e.target.closest('.cancel-edit-btn')) {
+                state.editingCard = null;
+                renderApp();
+                return;
+            }
 
-```html:Planilha Financeira:index.html
-<!-- ... existing code ... -->
+            if (e.target.closest('.save-card-btn')) {
+                const num = parseInt(e.target.closest('.save-card-btn').dataset.num);
+                const input = e.target.closest('.toggle-card').querySelector('.card-name-input');
+                const novoNome = input.value.trim() || `Cartão de Crédito ${num}`;
+                
+                state.settings.cardNames[num] = novoNome;
+                state.editingCard = null;
+                saveSettingsToCloud(); // Salva na nuvem na coleção "settings"
+                renderApp();
+                return;
+            }
+
+            // Impede que clicar no input texto feche o cartão acidentalmente
+            if (e.target.closest('.card-name-input')) {
+                return;
+            }
+
+            // Expandir/Colapsar Cartões
+            if (e.target.closest('.toggle-card')) {
+                const num = parseInt(e.target.closest('.toggle-card').dataset.num);
+                state.openCards[num] = !state.openCards[num];
+                renderApp();
+            }
+
+            // Mudança de Aba
+            if (e.target.closest('.tab-btn')) {
+                state.activeMonth = parseInt(e.target.closest('.tab-btn').dataset.index);
+                renderApp();
+            }
+
+            // Adicionar Mês
+            if (e.target.closest('.add-month-btn')) {
+                state.settings.totalMonths += 1;
+                saveSettingsToCloud(); // Salva a quantidade de meses na nuvem
+                renderApp();
+                // Rolar a barra de abas até o final
+                setTimeout(() => {
+                    const tabsContainer = document.querySelector('.scrollbar-hide');
+                    if(tabsContainer) tabsContainer.scrollLeft = tabsContainer.scrollWidth;
+                }, 100);
+            }
+
+            // Adicionar Transação
+            if (e.target.closest('.add-btn')) {
+                if (!state.user) return;
+                const container = e.target.closest('[data-type]');
+                const type = container.dataset.type;
+                const descInput = container.querySelector('.desc-input');
+                const amountInput = container.querySelector('.amount-input');
+                const instInput = container.querySelector('.inst-input');
+                
+                const recurCheckbox = container.querySelector('.recur-checkbox');
+                const isFixed = recurCheckbox ? recurCheckbox.checked : false;
+
+                const desc = descInput.value.trim();
+                const amount = Math.abs(parseFloat(amountInput.value));
+                const inst = instInput ? parseInt(instInput.value, 10) : 1;
+
+                if (!desc || isNaN(amount) || amount <= 0) return;
+
+                const data = {
+                    type,
+                    startMonthIndex: state.activeMonth,
+                    endMonthIndex: isFixed ? 999 : state.activeMonth, 
+                    description: desc,
+                    amount: amount,
+                    installments: isNaN(inst) || inst < 1 ? 1 : inst,
+                    createdAt: new Date().toISOString()
+                };
+
+                try {
+                    const btn = e.target.closest('.add-btn');
+                    btn.disabled = true;
+                    btn.innerText = '...';
+                    await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, 'transactions'), data);
+                } catch (error) {
+                    console.error("Erro ao salvar:", error);
+                    e.target.disabled = false;
+                    e.target.innerText = 'Adicionar';
+                }
+            }
+            
+            // Ligar/Desligar Recorrência
+            if (e.target.closest('.toggle-recur-btn')) {
+                if (!state.user) return;
+                const btn = e.target.closest('.toggle-recur-btn');
+                const id = btn.dataset.id;
+                const isCurrentlyRecurringOnwards = btn.dataset.recurring === 'true';
+
+                try {
+                    btn.style.opacity = '0.5';
+                    const newEndMonth = isCurrentlyRecurringOnwards ? state.activeMonth : 999;
+                    await updateDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'transactions', id), {
+                        endMonthIndex: newEndMonth
+                    });
+                } catch (error) {
+                    console.error("Erro ao atualizar repetição:", error);
+                    btn.style.opacity = '1';
+                }
+            }
+
+            // Excluir Transação
+            if (e.target.closest('.delete-btn')) {
+                if (!state.user) return;
+                const btn = e.target.closest('.delete-btn');
+                const id = btn.dataset.id;
+
+                if (state.deleteConfirmations[id]) {
+                    try {
+                        clearTimeout(state.deleteConfirmations[id]);
+                        delete state.deleteConfirmations[id];
+                        btn.innerText = '...';
+                        btn.disabled = true;
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'transactions', id));
+                    } catch (error) {
+                        console.error("Erro ao deletar:", error);
+                    }
+                } else {
+                    state.deleteConfirmations[id] = setTimeout(() => {
+                        delete state.deleteConfirmations[id];
+                        renderApp();
+                    }, 3000);
+                    renderApp();
+                }
+            }
+
+            // Evento de Login
+            if (e.target.closest('#login-btn')) {
+                const btn = e.target.closest('#login-btn');
+                btn.disabled = true;
+                btn.innerHTML = 'Abrindo Google...';
+                try {
+                    await signInWithPopup(auth, googleProvider);
+                } catch (error) {
+                    console.error("Erro no login:", error);
+                    btn.disabled = false;
+                    btn.innerHTML = 'Entrar com o Google';
+                    state.authError = "Não foi possível abrir o login. Se houver bloqueadores de pop-up, permita para continuar.";
+                    renderLogin();
+                }
+            }
+
             // Evento de Logout
             if (e.target.closest('#logout-btn')) {
                 await signOut(auth);
@@ -36,9 +572,10 @@
         });
 
         let unsubscribeSnapshot = null;
-        let unsubscribeSettings = null; // Novo olheiro independente para as configurações
+        let unsubscribeSettings = null; 
 
         onAuthStateChanged(auth, async (user) => {
+            // Limpa as subscrições anteriores
             if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
             if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
 
@@ -46,7 +583,7 @@
                 state.user = user;
                 state.authError = null;
 
-                // 1. Olheiro de Configurações (Busca os nomes dos cartões e total de meses no Firestore)
+                // 1. Olheiro de Configurações (settings)
                 const settingsRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'preferences');
                 unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
                     if (docSnap.exists()) {
@@ -57,15 +594,12 @@
                     }
                 });
                 
-                // 2. Olheiro de Transações (Busca as Receitas, Despesas e Faturas)
+                // 2. Olheiro de Transações (transactions)
                 const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
                 unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
                     const data = [];
                     snapshot.forEach(d => {
-                        // Ignora o documento antigo camuflado, caso ele ainda exista no banco
-                        if (d.id !== '__preferences__') {
-                            data.push({ id: d.id, ...d.data() });
-                        }
+                        data.push({ id: d.id, ...d.data() });
                     });
                     
                     data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -73,7 +607,7 @@
                     state.loading = false;
                     renderApp();
                 }, (error) => {
-                    console.error("Erro no banco de dados:", error);
+                    console.error("Erro no banco de transações:", error);
                     state.loading = false;
                     renderApp();
                 });
