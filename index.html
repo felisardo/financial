@@ -579,55 +579,38 @@
         // OLHEIRO DE AUTENTICAÇÃO E DADOS
         // ============================================================================
         let unsubscribeSnapshot = null;
-        let unsubscribeSettings = null;
 
         onAuthStateChanged(auth, async (user) => {
             if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
-            if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
 
             if (user && user.email === ALLOWED_EMAIL) {
                 state.user = user;
                 state.authError = null;
                 
-                let txLoaded = false;
-                let stLoaded = false;
-
-                const checkRender = () => {
-                    if (txLoaded && stLoaded) {
-                        state.loading = false;
-                        renderApp();
-                    }
-                };
-
-                // Observador das configurações sincronizadas da nuvem
-                unsubscribeSettings = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'preferences', 'general'), (docSnap) => {
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        if (data.cardNames) state.settings.cardNames = data.cardNames;
-                        if (data.totalMonths) state.settings.totalMonths = data.totalMonths;
-                    }
-                    stLoaded = true;
-                    checkRender();
-                }, (error) => {
-                    console.error("Erro ao ler preferências:", error);
-                    stLoaded = true; // Continua carregando a planilha mesmo se a preferência falhar
-                    checkRender();
-                });
-                
-                // Observador das transações
+                // Observador Único: Lê as transações e as configurações na mesma requisição
                 const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
                 unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
                     const data = [];
-                    snapshot.forEach(d => data.push({ id: d.id, ...d.data() }));
+                    snapshot.forEach(d => {
+                        if (d.id === '__preferences__') {
+                            // Se for o documento de configuração disfarçado, atualiza as variáveis
+                            const prefs = d.data();
+                            if (prefs.cardNames) state.settings.cardNames = prefs.cardNames;
+                            if (prefs.totalMonths) state.settings.totalMonths = prefs.totalMonths;
+                        } else {
+                            // Se for uma transação normal, coloca na lista
+                            data.push({ id: d.id, ...d.data() });
+                        }
+                    });
                     
                     data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
                     state.transactions = data;
-                    txLoaded = true;
-                    checkRender();
+                    state.loading = false;
+                    renderApp();
                 }, (error) => {
                     console.error("Erro no banco de dados:", error);
-                    txLoaded = true;
-                    checkRender();
+                    state.loading = false;
+                    renderApp();
                 });
             } else {
                 if (user && user.email !== ALLOWED_EMAIL) {
