@@ -6,6 +6,7 @@
     <title>Planilha Financeira</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* Estilos personalizados para barra de rolagem e animações */
         body { font-family: 'Inter', sans-serif; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
@@ -61,23 +62,28 @@
             transactions: [],
             settings: {
                 cardNames: { 1: "Cartão de Crédito 1", 2: "Cartão de Crédito 2", 3: "Cartão de Crédito 3", 4: "Cartão de Crédito 4" },
-                totalMonths: 12 // Começa com 12 meses por padrão
+                totalMonths: 12, // Quantidade padrão de meses
+                startMonthOffset: 0 // Quantos meses deslocar o início (para exclusão do primeiro mês)
             },
             activeMonth: 0,
             loading: true,
             authError: null,
             openCards: { 1: true, 2: true, 3: false, 4: false },
             deleteConfirmations: {},
-            editingCard: null, // Controla qual cartão está sendo editado no momento
+            editingCard: null, 
             newCardName: ""
         };
 
-        // Função para gerar a lista de meses com base na configuração do usuário
+        // Função para gerar a lista dinâmica de meses considerando deslocamentos e total
         const getMonthsList = () => {
             const list = [];
             const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-            let currentMonth = 8; // Começa em Setembro (Índice 8)
-            let currentYear = 26; // Começa em 2026
+            
+            // Base inicial: Setembro (8) de 2026 (26)
+            let baseMonthIndex = 8 + state.settings.startMonthOffset;
+            let currentYear = 26 + Math.floor(baseMonthIndex / 12);
+            let currentMonth = baseMonthIndex % 12;
+            if (currentMonth < 0) currentMonth += 12;
             
             for(let i = 0; i < state.settings.totalMonths; i++) {
                 list.push(`${monthNames[currentMonth]}/${currentYear}`);
@@ -97,20 +103,24 @@
         const calculateBalances = () => {
             const arr = [];
             let prev = 0;
+            const totalMonths = state.settings.totalMonths;
+            const offset = state.settings.startMonthOffset;
             
-            for (let i = 0; i < state.settings.totalMonths; i++) {
+            for (let i = 0; i < totalMonths; i++) {
+                // Índice absoluto real no tempo considerando o deslocamento do primeiro mês
+                const absoluteMonthIndex = i + offset;
                 let inc = 0, exp = 0, cds = 0;
 
                 state.transactions.forEach(t => {
                     const start = t.startMonthIndex;
                     const end = t.endMonthIndex ?? t.startMonthIndex;
 
-                    if (t.type === 'income' && i >= start && i <= end) {
+                    if (t.type === 'income' && absoluteMonthIndex >= start && absoluteMonthIndex <= end) {
                         inc += t.amount;
-                    } else if (t.type === 'expense' && i >= start && i <= end) {
+                    } else if (t.type === 'expense' && absoluteMonthIndex >= start && absoluteMonthIndex <= end) {
                         exp += t.amount;
                     } else if (t.type.startsWith('card')) {
-                        if (i >= start && i < start + t.installments) {
+                        if (absoluteMonthIndex >= start && absoluteMonthIndex < start + t.installments) {
                             cds += t.amount;
                         }
                     }
@@ -125,23 +135,26 @@
 
         const getItemsForMonth = (type) => {
             const items = [];
+            const offset = state.settings.startMonthOffset;
+            const absoluteActiveMonth = state.activeMonth + offset;
+
             state.transactions.forEach(t => {
                 const start = t.startMonthIndex;
                 const end = t.endMonthIndex ?? t.startMonthIndex;
 
                 if (t.type === type) {
                     if (type.startsWith('card')) {
-                        if (state.activeMonth >= start && state.activeMonth < start + t.installments) {
+                        if (absoluteActiveMonth >= start && absoluteActiveMonth < start + t.installments) {
                             items.push({
                                 id: t.id,
                                 description: t.description,
                                 amount: t.amount,
-                                currentInst: state.activeMonth - start + 1,
+                                currentInst: absoluteActiveMonth - start + 1,
                                 totalInst: t.installments
                             });
                         }
                     } else {
-                        if (state.activeMonth >= start && state.activeMonth <= end) {
+                        if (absoluteActiveMonth >= start && absoluteActiveMonth <= end) {
                             items.push({ 
                                 id: t.id, 
                                 description: t.description, 
@@ -156,18 +169,18 @@
             return items;
         };
 
-        // Salva as configurações exclusivamente na nuvem (Firestore)
+        // Salva as configurações na nuvem (Firestore)
         const saveSettingsToCloud = async () => {
             if (!state.user) return;
             try {
                 const prefsToSave = {
                     cardNames: state.settings.cardNames,
                     totalMonths: state.settings.totalMonths,
+                    startMonthOffset: state.settings.startMonthOffset,
                     updatedAt: new Date().toISOString()
                 };
                 const settingsRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'preferences');
                 await setDoc(settingsRef, prefsToSave, { merge: true });
-                console.log("Configurações atualizadas na nuvem!");
             } catch (err) {
                 console.error("Erro ao salvar configurações:", err);
             }
@@ -191,6 +204,9 @@
 
         const renderSection = (type, title, colorClass, items) => {
             const total = items.reduce((a, b) => a + b.amount, 0);
+            const offset = state.settings.startMonthOffset;
+            const absoluteActiveMonth = state.activeMonth + offset;
+
             return `
                 <div class="border rounded overflow-hidden shadow-sm bg-white mb-6">
                     <div class="p-3 font-semibold flex justify-between items-center ${colorClass}">
@@ -207,7 +223,7 @@
                         </thead>
                         <tbody>
                             ${items.length === 0 ? `<tr><td colspan="3" class="p-4 text-center text-gray-400 italic">Nenhum registro lançado.</td></tr>` : items.map(item => {
-                                const isRecurringOnwards = item.endMonthIndex > state.activeMonth;
+                                const isRecurringOnwards = item.endMonthIndex > absoluteActiveMonth;
                                 const isFixedItem = item.endMonthIndex > item.startMonthIndex;
                                 return `
                                 <tr class="border-b last:border-0 hover:bg-gray-50 transition-colors">
@@ -352,6 +368,11 @@
                 </header>
 
                 <div class="flex overflow-x-auto bg-white shadow-sm z-10 sticky top-[52px] sm:top-[60px] scrollbar-hide items-center">
+                    <!-- Botão para remover o primeiro mês -->
+                    <button class="remove-first-month-btn px-3 py-3 border-r border-gray-200 text-red-500 hover:bg-red-50 font-bold text-xs transition-colors whitespace-nowrap flex items-center gap-1" title="Excluir o primeiro mês da visualização">
+                        <span>🗑️ - 1º Mês</span>
+                    </button>
+
                     ${dynamicMonths.map((m, i) => `
                         <button class="tab-btn px-5 py-3 min-w-[100px] sm:min-w-[120px] font-medium text-sm transition-colors border-b-2 flex-1 whitespace-nowrap 
                             ${state.activeMonth === i ? 'border-[#0F9D58] text-[#0F9D58] bg-green-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}"
@@ -360,9 +381,15 @@
                         </button>
                     `).join('')}
                     
-                    <button class="add-month-btn px-4 py-2 mx-2 border border-[#0F9D58] text-[#0F9D58] font-bold text-sm rounded hover:bg-[#0F9D58] hover:text-white transition-colors whitespace-nowrap shadow-sm" title="Acrescentar mais 1 mês no futuro">
-                        + Mês
-                    </button>
+                    <!-- Botões para gerenciar quantidade de meses -->
+                    <div class="flex items-center border-l border-gray-200 mx-2 pl-2 gap-1">
+                        <button class="add-month-btn px-3 py-1.5 border border-[#0F9D58] text-[#0F9D58] font-bold text-xs rounded hover:bg-[#0F9D58] hover:text-white transition-colors whitespace-nowrap shadow-sm" title="Acrescentar mais 1 mês no futuro">
+                            + Mês
+                        </button>
+                        <button class="remove-last-month-btn px-3 py-1.5 border border-red-400 text-red-500 font-bold text-xs rounded hover:bg-red-500 hover:text-white transition-colors whitespace-nowrap shadow-sm" title="Excluir o último mês da visualização">
+                            - Último Mês
+                        </button>
+                    </div>
                 </div>
 
                 <main class="flex-1 p-3 sm:p-5 max-w-7xl mx-auto w-full">
@@ -414,7 +441,7 @@
                 state.editingCard = num;
                 state.newCardName = state.settings.cardNames[num] || `Cartão de Crédito ${num}`;
                 renderApp();
-                return; // Bloqueia a propagação para evitar fechar/abrir o cartão
+                return;
             }
 
             if (e.target.closest('.cancel-edit-btn')) {
@@ -430,12 +457,11 @@
                 
                 state.settings.cardNames[num] = novoNome;
                 state.editingCard = null;
-                saveSettingsToCloud(); // Salva na nuvem na coleção "settings"
+                saveSettingsToCloud(); 
                 renderApp();
                 return;
             }
 
-            // Impede que clicar no input texto feche o cartão acidentalmente
             if (e.target.closest('.card-name-input')) {
                 return;
             }
@@ -456,13 +482,37 @@
             // Adicionar Mês
             if (e.target.closest('.add-month-btn')) {
                 state.settings.totalMonths += 1;
-                saveSettingsToCloud(); // Salva a quantidade de meses na nuvem
+                saveSettingsToCloud(); 
                 renderApp();
-                // Rolar a barra de abas até o final
                 setTimeout(() => {
                     const tabsContainer = document.querySelector('.scrollbar-hide');
                     if(tabsContainer) tabsContainer.scrollLeft = tabsContainer.scrollWidth;
                 }, 100);
+            }
+
+            // Remover o Último Mês
+            if (e.target.closest('.remove-last-month-btn')) {
+                if (state.settings.totalMonths > 1) {
+                    state.settings.totalMonths -= 1;
+                    if (state.activeMonth >= state.settings.totalMonths) {
+                        state.activeMonth = state.settings.totalMonths - 1;
+                    }
+                    saveSettingsToCloud();
+                    renderApp();
+                }
+            }
+
+            // Remover o Primeiro Mês
+            if (e.target.closest('.remove-first-month-btn')) {
+                if (state.settings.totalMonths > 1) {
+                    state.settings.startMonthOffset += 1;
+                    state.settings.totalMonths -= 1;
+                    if (state.activeMonth > 0) {
+                        state.activeMonth -= 1; // Mantém a seleção visualmente coerente se possível
+                    }
+                    saveSettingsToCloud();
+                    renderApp();
+                }
             }
 
             // Adicionar Transação
@@ -483,10 +533,13 @@
 
                 if (!desc || isNaN(amount) || amount <= 0) return;
 
+                const offset = state.settings.startMonthOffset;
+                const absoluteActiveMonth = state.activeMonth + offset;
+
                 const data = {
                     type,
-                    startMonthIndex: state.activeMonth,
-                    endMonthIndex: isFixed ? 999 : state.activeMonth, 
+                    startMonthIndex: absoluteActiveMonth,
+                    endMonthIndex: isFixed ? 999 : absoluteActiveMonth, 
                     description: desc,
                     amount: amount,
                     installments: isNaN(inst) || inst < 1 ? 1 : inst,
@@ -511,10 +564,12 @@
                 const btn = e.target.closest('.toggle-recur-btn');
                 const id = btn.dataset.id;
                 const isCurrentlyRecurringOnwards = btn.dataset.recurring === 'true';
+                const offset = state.settings.startMonthOffset;
+                const absoluteActiveMonth = state.activeMonth + offset;
 
                 try {
                     btn.style.opacity = '0.5';
-                    const newEndMonth = isCurrentlyRecurringOnwards ? state.activeMonth : 999;
+                    const newEndMonth = isCurrentlyRecurringOnwards ? absoluteActiveMonth : 999;
                     await updateDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'transactions', id), {
                         endMonthIndex: newEndMonth
                     });
@@ -560,7 +615,7 @@
                     console.error("Erro no login:", error);
                     btn.disabled = false;
                     btn.innerHTML = 'Entrar com o Google';
-                    state.authError = "Não foi possível abrir o login. Se houver bloqueadores de pop-up, permita para continuar.";
+                    state.authError = "Não foi possível abrir o login.";
                     renderLogin();
                 }
             }
@@ -575,7 +630,6 @@
         let unsubscribeSettings = null; 
 
         onAuthStateChanged(auth, async (user) => {
-            // Limpa as subscrições anteriores
             if (unsubscribeSnapshot) { unsubscribeSnapshot(); unsubscribeSnapshot = null; }
             if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
 
@@ -583,18 +637,19 @@
                 state.user = user;
                 state.authError = null;
 
-                // 1. Olheiro de Configurações (settings)
+                // Olheiro de Configurações
                 const settingsRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'preferences');
                 unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
                     if (docSnap.exists()) {
                         const prefs = docSnap.data();
                         if (prefs.cardNames) state.settings.cardNames = prefs.cardNames;
                         if (prefs.totalMonths) state.settings.totalMonths = prefs.totalMonths;
+                        if (prefs.startMonthOffset !== undefined) state.settings.startMonthOffset = prefs.startMonthOffset;
                         renderApp();
                     }
                 });
                 
-                // 2. Olheiro de Transações (transactions)
+                // Olheiro de Transações
                 const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
                 unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
                     const data = [];
@@ -617,7 +672,7 @@
                      state.authError = "Email não autorizado.";
                 }
                 
-                state.user = null;
+                state.user = user;
                 state.transactions = [];
                 state.loading = false;
                 renderLogin();
