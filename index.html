@@ -73,7 +73,7 @@
             editingCard: null
         };
 
-        // Gerador dinâmico de meses para permitir adição infinita
+        // Gerador dinâmico de meses
         const getMonths = () => {
             const arr = [];
             let m = 8; // Começa em Setembro (mês 8 no array 0-11)
@@ -104,7 +104,7 @@
 
                 state.transactions.forEach(t => {
                     const start = t.startMonthIndex;
-                    const end = t.endMonthIndex ?? t.startMonthIndex; // Se não tiver fim, termina no mesmo mês que começou
+                    const end = t.endMonthIndex ?? t.startMonthIndex;
 
                     if (t.type === 'income' && i >= start && i <= end) {
                         inc += t.amount;
@@ -143,7 +143,6 @@
                             });
                         }
                     } else {
-                        // Verifica se o item pertence ao mês ativo baseado no início e no fim (recorrência)
                         if (state.activeMonth >= start && state.activeMonth <= end) {
                             items.push({ 
                                 id: t.id, 
@@ -193,9 +192,7 @@
                         </thead>
                         <tbody>
                             ${items.length === 0 ? `<tr><td colspan="3" class="p-4 text-center text-gray-400 italic">Nenhum registro lançado.</td></tr>` : items.map(item => {
-                                // Se o fim for maior que o mês atual, a recorrência continua para os próximos meses
                                 const isRecurringOnwards = item.endMonthIndex > state.activeMonth;
-                                // Se for um item fixo que já está repetindo ou vai repetir
                                 const isFixedItem = item.endMonthIndex > item.startMonthIndex;
                                 
                                 return `
@@ -209,12 +206,10 @@
                                     <td class="p-2">${formatCurrency(item.amount)}</td>
                                     <td class="p-2 text-center flex justify-center items-center gap-1.5">
                                         
-                                        <!-- Botão Ligar/Desligar Recorrência -->
                                         <button class="toggle-recur-btn text-xs p-1.5 rounded transition-colors ${isRecurringOnwards ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" data-id="${item.id}" data-recurring="${isRecurringOnwards}" title="${isRecurringOnwards ? 'Parar repetição a partir do próximo mês' : 'Tornar recorrente nos próximos meses'}">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                                         </button>
 
-                                        <!-- Botão Excluir -->
                                         <button class="delete-btn text-xs px-2 py-1.5 rounded transition-colors ${state.deleteConfirmations[item.id] ? 'bg-red-600 text-white font-bold' : 'text-red-500 hover:bg-red-100'}" data-id="${item.id}" title="Excluir lançamento">
                                             ${state.deleteConfirmations[item.id] ? 'Excluir?' : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>'}
                                         </button>
@@ -363,7 +358,6 @@
                 </div>
 
                 <main class="flex-1 p-3 sm:p-5 max-w-7xl mx-auto w-full">
-                    <!-- Resumo do Mês -->
                     <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                         <div class="p-3 rounded shadow-sm bg-white border-l-4 border-gray-400 flex flex-col justify-center">
                             <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Saldo Anterior</p>
@@ -403,14 +397,29 @@
             `;
         };
 
+        // Função auxiliar para salvar configurações sincronizadas com a nuvem
+        const saveSettingsToCloud = async () => {
+            if (!state.user) return;
+            try {
+                // Criamos a coleção 'preferences' para evitar restrições de permissões generais
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'preferences', 'general'), {
+                    cardNames: state.settings.cardNames,
+                    totalMonths: state.settings.totalMonths
+                }, { merge: true });
+                console.log("Configurações salvas na nuvem com sucesso!");
+            } catch (err) {
+                console.error("Erro ao salvar configurações:", err);
+            }
+        };
+
         document.body.addEventListener('click', async (e) => {
+            
             // Adicionar Novo Mês
             if (e.target.closest('.add-month-btn')) {
                 if (!state.user) return;
                 state.settings.totalMonths += 1;
                 renderApp();
-                // Salva a nova quantidade de meses no banco
-                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'general'), state.settings, { merge: true });
+                await saveSettingsToCloud();
                 return;
             }
 
@@ -419,8 +428,11 @@
                 const num = parseInt(e.target.closest('.edit-card-btn').dataset.num);
                 state.editingCard = num;
                 renderApp();
-                setTimeout(() => document.getElementById(`edit-card-input-${num}`).focus(), 50);
-                return; // Impede que a ação de expandir o cartão ocorra
+                setTimeout(() => {
+                    const input = document.getElementById(`edit-card-input-${num}`);
+                    if(input) input.focus();
+                }, 50);
+                return; 
             }
 
             // Salvar Nome do Cartão
@@ -435,9 +447,8 @@
                 }
                 state.editingCard = null;
                 renderApp();
-                // Salva o novo nome no banco
-                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'settings', 'general'), state.settings, { merge: true });
-                return; // Impede que a ação de expandir o cartão ocorra
+                await saveSettingsToCloud();
+                return; 
             }
 
             // Impedir colapso do cartão ao clicar no campo de texto
@@ -467,7 +478,6 @@
                 const amountInput = container.querySelector('.amount-input');
                 const instInput = container.querySelector('.inst-input');
                 
-                // Pega o valor da caixinha de "Fixo" (se existir)
                 const recurCheckbox = container.querySelector('.recur-checkbox');
                 const isFixed = recurCheckbox ? recurCheckbox.checked : false;
 
@@ -480,7 +490,6 @@
                 const data = {
                     type,
                     startMonthIndex: state.activeMonth,
-                    // Se for fixo, joga o fim lá pra frente (99). Se não for, termina no mesmo mês que começou.
                     endMonthIndex: isFixed ? 99 : state.activeMonth, 
                     description: desc,
                     amount: amount,
@@ -500,19 +509,16 @@
                 }
             }
             
-            // Ligar/Desligar Recorrência de uma transação existente
+            // Ligar/Desligar Recorrência 
             if (e.target.closest('.toggle-recur-btn')) {
                 if (!state.user) return;
                 const btn = e.target.closest('.toggle-recur-btn');
                 const id = btn.dataset.id;
-                // Descobre se a transação atualmente está programada para se repetir nos próximos meses
                 const isCurrentlyRecurringOnwards = btn.dataset.recurring === 'true';
 
                 try {
                     btn.style.opacity = '0.5';
-                    // Se estiver repetindo, manda parar neste mês atual. Se não, manda repetir infinitamente (99).
                     const newEndMonth = isCurrentlyRecurringOnwards ? state.activeMonth : 99;
-                    
                     await updateDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'transactions', id), {
                         endMonthIndex: newEndMonth
                     });
@@ -522,7 +528,7 @@
                 }
             }
 
-            // Excluir Transação (Dupla Confirmação)
+            // Excluir Transação 
             if (e.target.closest('.delete-btn')) {
                 if (!state.user) return;
                 const btn = e.target.closest('.delete-btn');
@@ -547,7 +553,7 @@
                 }
             }
 
-            // Evento de Login (Usando Pop-up limpo para evitar loops de cache)
+            // Evento de Login 
             if (e.target.closest('#login-btn')) {
                 const btn = e.target.closest('#login-btn');
                 btn.disabled = true;
@@ -558,7 +564,7 @@
                     console.error("Erro no login:", error);
                     btn.disabled = false;
                     btn.innerHTML = 'Entrar com o Google';
-                    state.authError = "Não foi possível abrir a janela de login. Se houver bloqueadores de pop-up, permita para continuar.";
+                    state.authError = "Não foi possível abrir a janela de login. Se houver bloqueadores, permita para continuar.";
                     renderLogin();
                 }
             }
@@ -593,8 +599,8 @@
                     }
                 };
 
-                // Observador silencioso das configurações salvas (Nomes dos cartões, Qtd de Meses)
-                unsubscribeSettings = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), (docSnap) => {
+                // Observador das configurações sincronizadas da nuvem
+                unsubscribeSettings = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'preferences', 'general'), (docSnap) => {
                     if (docSnap.exists()) {
                         const data = docSnap.data();
                         if (data.cardNames) state.settings.cardNames = data.cardNames;
@@ -602,8 +608,13 @@
                     }
                     stLoaded = true;
                     checkRender();
+                }, (error) => {
+                    console.error("Erro ao ler preferências:", error);
+                    stLoaded = true; // Continua carregando a planilha mesmo se a preferência falhar
+                    checkRender();
                 });
                 
+                // Observador das transações
                 const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
                 unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
                     const data = [];
@@ -614,7 +625,7 @@
                     txLoaded = true;
                     checkRender();
                 }, (error) => {
-                    console.error("Firestore error:", error);
+                    console.error("Erro no banco de dados:", error);
                     txLoaded = true;
                     checkRender();
                 });
