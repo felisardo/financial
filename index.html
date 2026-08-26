@@ -394,6 +394,10 @@
             const dynamicMonths = getMonthsList();
             const balances = calculateBalances();
             const activeData = balances[state.activeMonth] || { previousBalance: 0, incomes: 0, expenses: 0, cards: 0, currentBalance: 0 };
+            
+            // Cálculo do resultado isolado do mês atual (sem herança)
+            const monthNet = activeData.incomes - activeData.expenses - activeData.cards;
+            const isMonthPositive = monthNet >= 0;
 
             appDiv.innerHTML = `
                 <header class="bg-[#0F9D58] text-white p-3 flex items-center justify-between shadow-md z-20 sticky top-0">
@@ -458,6 +462,19 @@
                             <p class="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">Saldo Atual</p>
                             <p class="text-base sm:text-xl font-bold truncate ${activeData.currentBalance >= 0 ? 'text-blue-600' : 'text-red-600'}">
                                 ${formatCurrency(activeData.currentBalance)}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Resultado Isolado do Mês (Sem Saldo Anterior) -->
+                    <div class="mb-6 p-4 rounded shadow-sm bg-white border-l-4 ${isMonthPositive ? 'border-blue-500' : 'border-red-500'} flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                        <div>
+                            <p class="text-xs sm:text-sm text-gray-600 font-bold uppercase tracking-wider">Balanço do Mês Atual</p>
+                            <p class="text-[10px] sm:text-xs text-gray-400">Total de Receitas (-) Despesas e Cartões (Ignorando o Saldo Anterior)</p>
+                        </div>
+                        <div class="text-left sm:text-right">
+                            <p class="text-lg sm:text-xl font-bold ${isMonthPositive ? 'text-blue-600' : 'text-red-600'}">
+                                ${isMonthPositive ? '+' : ''}${formatCurrency(monthNet)}
                             </p>
                         </div>
                     </div>
